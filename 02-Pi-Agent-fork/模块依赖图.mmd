@@ -1,0 +1,72 @@
+%% Pi Agent 模块层级与依赖关系（箭头方向：使用方 → 被依赖方）
+%% 实线 = dependencies（运行期直接依赖）
+%% 橙色点线 = peerDependencies（可选，由使用方/宿主提供；本仓库仅 chord 声明，均 optional:true）
+%% 紫色点线 = devDependencies（仅开发/测试，不进构建产物）
+%% 依据：packages/*/package.json 的 dependencies / peerDependencies / peerDependenciesMeta / devDependencies
+flowchart TD
+  subgraph L0["L0 基础层：无内部依赖"]
+    TE["telemetry<br/>pi-telemetry"]
+    SC["schema<br/>pi-schema"]
+    TU["tui<br/>pi-tui"]
+    CM["codemode<br/>pi-codemode"]
+    MC["mcp<br/>pi-mcp"]
+  end
+
+  subgraph L1["L1 契约与模型接入层"]
+    CH["chord<br/>chord"]
+    AI["ai<br/>pi-ai"]
+    EXT1["esbuild / react / ws<br/>chord 的 peer（optional: true）"]
+  end
+
+  subgraph L2["L2 Agent 运行时层"]
+    AG["agent<br/>pi-agent-core"]
+    DU["durable<br/>pi-durable"]
+  end
+
+  subgraph L3["L3 执行环境与装配层"]
+    EN["env<br/>pi-env"]
+    CA["coding-agent<br/>pi-coding-agent"]
+    EV["evals<br/>pi-evals（仅 dev）"]
+  end
+
+  %% ---------- 0-17：dependencies（实线） ----------
+  CH --> SC
+  CH --> TE
+  AI --> SC
+  AI --> TE
+  AG --> AI
+  AG --> SC
+  DU --> CH
+  DU --> AI
+  DU --> CM
+  DU --> SC
+  DU --> TE
+  EN --> DU
+  EN --> CH
+  CA --> AG
+  CA --> AI
+  CA --> CM
+  CA --> MC
+  CA --> TU
+
+  %% ---------- 18：peerDependencies（可选，橙色长虚线） ----------
+  CH -.->|peer 可选| EXT1
+
+  %% ---------- 19-20：devDependencies（紫色点线） ----------
+  EV -.->|dev 仅开发| AI
+  EV -.->|dev 仅开发| CA
+
+  %% ---------- 21-22：不在根构建链的应用层（灰色细点线） ----------
+  P2["apps/p2<br/>应用层，不进根 build 链"] -.-> DU
+  P2 -.-> CH
+
+  linkStyle 18 stroke:#C0772B,stroke-width:2px,stroke-dasharray:10 6
+  linkStyle 19,20 stroke:#63439B,stroke-width:2px,stroke-dasharray:3 4
+  linkStyle 21,22 stroke:#9AA5B1,stroke-width:1px,stroke-dasharray:2 5
+
+  classDef ext fill:#F4F5F7,stroke:#8492A6,stroke-width:2px,color:#5B6672
+  classDef dev fill:#F3ECFA,stroke:#63439B,stroke-width:2px
+  class EXT1,P2 ext
+  class EV dev
+%% 层级依据：该模块向下最长依赖链长度 —— chord/ai 仅依赖 L0 故为 L1；agent/durable 经 ai、chord 得 2；
+%% env/coding-agent 得 3。本版本全仓无 optionalDependencies 字段，可选性只由 chord 的 peerDependenciesMeta 表达。
