@@ -18,7 +18,7 @@
 | 问题 | 本次答案 |
 |---|---|
 | 源码在哪里 | `E:\PiAgent\pi-hunnu-2026`，分支 `main`，提交 `c3cc91632d0a1950fb122605b190233f2aa0006e` |
-| 依赖装在哪里 | 仓库根 `node_modules`；11 个内部包经 npm workspaces 软链接到 `node_modules\@earendil-works\*`，未装成全局包 |
+| 依赖装在哪里 | 仓库根 `node_modules`；12 个内部包经 npm workspaces 软链接到 `node_modules\@earendil-works\*`，未装成全局包 |
 | 构建执行了什么 | 根 `npm run build:offline` 串行调度 11 个包：`tsc` 把各包 `src` 编成 `dist`，`ai` 先校验模型数据并拷贝 JSON，`coding-agent` 最后用 esbuild 打成单文件 bundle |
 | 正在运行哪个版本 | 本地源码版 `1.5.2`（`.\pi-test.bat` 直接跑 `src/cli.ts`；`dist\bundle\cli.js --version` 同样输出 `1.5.2`） |
 
@@ -151,7 +151,7 @@ npm install --ignore-scripts
 安装完成后核对软链（这是判断"依赖装在哪"最直接的方式）：
 
 - 根 `node_modules` 是依赖的物理位置；
-- `node_modules\@earendil-works\` 下 11 个条目是指向仓库内实际目录的软链，例如 `pi-ai → E:\PiAgent\pi-hunnu-2026\packages\ai`、`pi-agent-core → ...\packages\agent`、`pi-coding-agent → ...\packages\coding-agent`；
+- `node_modules\@earendil-works\` 下 12 个 pi 条目是指向仓库内实际目录的软链（含不在构建链内的 pi-evals），例如 `pi-ai → E:\PiAgent\pi-hunnu-2026\packages\ai`、`pi-agent-core → ...\packages\agent`、`pi-coding-agent → ...\packages\coding-agent`；
 - 其余条目（`design-tokens`、`elanor-*`、`gondolin` 等）是正常的外部依赖包。
 
 正因为有这些软链，`durable`、`agent`、`coding-agent` 才能在不发版的前提下直接引用同仓库其他包的构建产物。
