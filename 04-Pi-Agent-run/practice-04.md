@@ -99,7 +99,7 @@ npm run build
 
 *图3（S3a）`PS E:\PiAgent\pi-hunnu-2026> npm run build`，随后 `pi-monorepo@0.0.3 build` 打印出那条 `cd packages/telemetry && …` 串行链，并依次编译 `pi-telemetry`、`pi-schema`、`chord`、`pi-tui`。*
 
-![构建结束与退出码](S3b运行$LASTEXITCODE得到0.png)
+![构建结束与退出码](S3b运行%24LASTEXITCODE得到0.png)
 
 *图4（S3b）构建最后一段：`copy-assets` 拷主题/图片/模板 → `Built packages\coding-agent\dist\bundle (84 files, 9.4 MiB)` → `$LASTEXITCODE` 输出 `0`。*
 
