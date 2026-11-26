@@ -28,8 +28,6 @@
 
 ## 一、A 阶段：单轮交互与工具调用
 
-工作目录里先放好交接单（标识用本组随机串 `river-711`，提问里不提命令）：
-
 ```text
 待办：补充 README 的启动说明
 启动命令：npm run demo -- --profile river-711
@@ -147,16 +145,6 @@ node .\packages\coding-agent\dist\cli.js -c
 
 两次对照很清楚：**同一目录、同一模型、同一句话，唯一变量是"聊天历史里有没有 A 阶段那两条工具消息"**。
 
-### 3. 会话文件层面的核对
-
-用落到磁盘的会话记录再确认一次（`~/.pi/agent/sessions/--E--PiAgent-pi-hunnu-2026--/`）：
-
-| 记录 | 消息序列（按顺序） | 说明 |
-|---|---|---|
-| A + B1（同一个 `.jsonl`，id 相同） | `system` → `user(A 提问)` → `assistant(toolCall: read)` → `toolResult(交接单内容)` → `assistant(A 回答)` → `user(B1 提问)` → `assistant(B1 回答)` | `-c` 打开的是**同一个会话文件**，B1 的问答被追加在后面 |
-| B2（另一个 `.jsonl`，新 id） | `system` → `user(B2 提问)` → `assistant("没有交接单内容…")` | `/new` 创建了**新的会话文件**，历史里没有 A 的任何消息 |
-
-这条核对把"恢复"落到了实处：不是界面上把旧文字重画一遍，而是旧消息真的回到了 `messages` 数组里，跟着下一次请求一起发给了模型。
 
 ### 图 2：恢复旧会话与新建会话的对照图
 
@@ -178,61 +166,10 @@ flowchart TD
 
 关键差别一句话：**两者的区别不在模型，而在 `messages` 数组里有没有 A 阶段那条 `toolResult`**。`-c` 从会话文件把它读回来了；`/new` 换了一个空的历史。
 
-## 三、源码泛读：本次核实到的几个点
 
-### 3.1 `read` 工具到底是流式读还是缓冲区读
-
-`packages/coding-agent/src/core/tools/read.ts` 默认实现了两条路径（L69–70）：
-
-```ts
-readFile: (path) => fsReadFile(path),
-createReadStream: readLocalFileChunks,
-```
-
-执行时按范围判断（L298–308）：
-
-```ts
-const startLine = offset ? Math.max(0, offset - 1) : 0;
-const { totalFileLines, truncation, firstLineBytes } =
-    ops.createReadStream && isStreamableRange(offset, limit)
-        ? await selectLinesFromStream(ops.createReadStream(absolutePath, { signal }), startLine, limit, signal)
-        : selectLinesFromBuffer(await ops.readFile(absolutePath), startLine, limit);
-```
-
-`isStreamableRange`（L122–127）只接受 `undefined` 或整数。本次模型给的参数是 `offset: null, limit: null`，**null 既不是 undefined 也不是整数，于是判定不可流式，走的是 `selectLinesFromBuffer(await ops.readFile(...))`——整文件读进缓冲区分行**。对照实践 04 同一条工具调用 `read practice4.txt offset=1 limit=200`，那种整数范围才会走 `selectLinesFromStream` 的分块读取。同一个工具两条路径，取决于模型给的范围参数。
-
-### 3.2 模型请求层与远端服务
-
-- `agent-loop.ts` 里只有一处 `streamFunction(...)`（L414），请求前后就是两行 `[P4]` 日志的语义位置。
-- `coding-agent/src/core/sdk.ts` 在初始化时 `setDefaultStreamFn(streamSimple)`（L46），并在会话配置里给出 `streamFn`（L412），所以 CLI 里不需要每处传函数。
-- `pi-ai/packages/ai/src/compat.ts` 的 `stream` / `streamSimple`（L252 / L278）按 `model.provider`、`model.api` 选适配器；本机 `deepseek-v4-pro` 的 `api` 是 `openai-completions`、`baseUrl` 是 `https://api.deepseek.com`，所以模型请求层与远端之间是"OpenAI 兼容的 chat completions 流式请求 / SSE chunk 响应"。
-
-### 3.3 会话恢复与新建的源码入口
-
-- 恢复：`cli/args.ts` 的 `--continue, -c`（L111–113）→ `main.ts` 里 `if (parsed.continue) return SessionManager.continueRecent(cwd, sessionDir);`（L479–480）→ 会话目录由 `getDefaultSessionDirPath` 用 cwd 编码生成（`session-manager.ts` L590–595）。实测目录名正是 `--E--PiAgent-pi-hunnu-2026--`。
-- 新建：`interactive-mode.ts` 的 `if (text === "/new")`（L3429）→ `handleClearCommand()` → `runtimeHost.newSession()`（L7120），产生一个历史为空的新会话。
-
-### 3.4 适合改动的落点
-
-| 想做的事 | 合适的位置 | 说明 |
-|---|---|---|
-| 改输入处理（命令、模板、排队） | `interactive-mode.ts` `onSubmit`（L3325） | 命令分支都在这里，普通文本才入队 |
-| 改"一次提问怎么推进" | `agent-loop.ts` `runLoop`（L172） | 请求 → 工具 → 结果 → 再请求的循环体 |
-| 改工具行为/新工具 | `core/tools/*.ts`（本次 `read.ts` 的 `createReadToolDefinition` L229） | 工具只负责执行并返回结果，不碰模型 |
-| 改模型接入/换 provider | `sdk.ts` 的 `streamFn`（L412）与 `pi-ai` `compat.ts` | 上层的 agent 只认 `streamFn` 契约 |
-| 改显示/流式刷新 | `interactive-mode.ts` `handleEvent`（L3531）的 `message_update` / `message_end` | 逐字刷新与定稿分别在这两个分支 |
-| 改会话恢复策略 | `SessionManager.continueRecent`（`main.ts` L480） | 恢复、列举、清理都集中在这里 |
-
-## 四、结论
+## 三、结论
 
 1. **一次用户输入是一轮交互，但可以包含多次模型调用**。A 阶段是 1 次用户输入 → 2 次模型请求（`toolCall` 一次、带结果回答一次），两次请求之间夹着 1 次 `read` 工具执行。日志顺序与源码完全对得上：`[P4] Agent 即将请求模型` 在 `streamFunction` 之前，`[P4] 工具结果已加入上下文` 在 `messages.push(result)` 之后。
 2. **谁读了文件**：不是模型，是 `read` 工具在本地进程里读的（本次走 `fs.readFile` 缓冲区路径）；模型只发出了 `read` 的参数。
 3. **恢复与新建的唯一区别**：`-c` 把 A 阶段的 `user / toolCall / toolResult / assistant` 从会话文件恢复进 `messages`，所以第二次提问的请求体里带着启动命令；`/new` 的 `messages` 里没有这些，模型就只能说"缺少信息"。
 4. **本次改动的落点建议**：验证"输入 → 循环 → 工具 → 显示"这条链路，最省事的是在 `runLoop`/`streamAssistantResponse` 与 `read.ts` 的 `execute` 里加日志；要动行为则应分别落在 `onSubmit`（输入）、`runLoop`（循环）、`createReadToolDefinition`（工具）、`sdk.ts streamFn`（模型接入）、`handleEvent`（显示）五处之一，避免把逻辑堆到同一层。
-
-## 五、提交说明
-
-- 报告与 3 张截图都在 `homework/05-Pi-Agent-source-reading/`，图片按相对路径引用，GitHub 网页可直接渲染；图 1、图 2 用 Mermaid 写在正文里，GitHub 会自动绘制。
-- 个人仓库：`https://github.com/lllllylllllc/-`；小组代码仓库：`https://gitee.com/pinhaodui/pi-hunnu-2026`。
-- 课程作业 Issue 标题：`实践课5：Pi Agent工具调用与会话恢复 liuying`，正文附报告链接。
-- 截图与文字均未出现 API Key 或 `auth.json` 内容；`river-711` 为本组自定标识，提问中没有透露命令。
